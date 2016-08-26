@@ -1,0 +1,53 @@
+hash: f772481c6da5d1af97f74cc56307781bb90eecec206305a346dc3ee562075ca4
+updated: 2016-08-26T19:03:47.347572592+03:00
+imports:
+- name: github.com/docker/docker
+  version: 91ec7fa811c7476b7c20e3b95a92ea9062d498fa
+  subpackages:
+  - opts
+  - pkg/archive
+  - pkg/fileutils
+  - pkg/homedir
+  - pkg/stdcopy
+  - pkg/idtools
+  - pkg/ioutils
+  - pkg/longpath
+  - pkg/pools
+  - pkg/promise
+  - pkg/system
+- name: github.com/docker/engine-api
+  version: b66d7d91dbde8b568eab9587fe9cbdd08506ed2e
+  subpackages:
+  - types/swarm
+  - types/filters
+  - types/mount
+  - types/versions
+- name: github.com/docker/go-units
+  version: eb879ae3e2b84e2a142af415b679ddeda47ec71c
+- name: github.com/fsouza/go-dockerclient
+  version: 5ffc56c4f7ce8d150a5c770dd7166b86bfd486e5
+- name: github.com/go-fsnotify/fsnotify
+  version: f12c6236fe7b5cf6bcf30e5935d08cb079d78334
+- name: github.com/goanywhere/fs
+  version: 298991472c9fc603a927debee76d69df306c4b9e
+- name: github.com/hashicorp/go-cleanhttp
+  version: ad28ea4487f05916463e2423a55166280e8254b5
+- name: github.com/opencontainers/runc
+  version: 1e319efa3639a32d07a63e0b11f5a6f8b6aabe06
+  subpackages:
+  - libcontainer/system
+  - libcontainer/user
+- name: github.com/satori/go.uuid
+  version: 0aa62d5ddceb50dbcb909d790b5345affd3669b6
+- name: github.com/Sirupsen/logrus
+  version: 08a8a7c27e3d058a8989316a850daad1c10bf4ab
+- name: golang.org/x/net
+  version: 6c89f9617983ee917132513a791d8b5850fe90c5
+  subpackages:
+  - context
+  - context/ctxhttp
+- name: golang.org/x/sys
+  version: a646d33e2ee3172a661fc09bca23bb4889a41bc8
+  subpackages:
+  - unix
+devImports: []
