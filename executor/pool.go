@@ -60,11 +60,14 @@ func returnWorkerToPool(p ExecutorParams, w PoolWorker) {
 func getWorkerFromPool(p ExecutorParams) PoolWorker {
 	log.Println("Getting worker from pool")
 	poolLock.Lock()
+	log.Println(workersCount(p))
 	if workers[p.Image] == nil || workersCount(p) == 0 {
 		createWorkers(p)
 	}
 	poolLock.Unlock()
-	return <-workers[p.Image]
+	w := <-workers[p.Image]
+	log.Println(workersCount(p))
+	return w
 }
 
 func workersCount(p ExecutorParams) int {
