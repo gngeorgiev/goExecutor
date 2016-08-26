@@ -1,31 +1,33 @@
-hash: f772481c6da5d1af97f74cc56307781bb90eecec206305a346dc3ee562075ca4
-updated: 2016-08-26T19:03:47.347572592+03:00
+hash: cf68833f1126c58065a0f22e468e9d5a56881d5cf3d839f705b76ec0e7519f0a
+updated: 2016-08-27T01:13:12.932001714+03:00
 imports:
 - name: github.com/docker/docker
-  version: 91ec7fa811c7476b7c20e3b95a92ea9062d498fa
+  version: bdadcfc1bbb04950c4835cfa4d75f0e480555a2f
   subpackages:
   - opts
   - pkg/archive
   - pkg/fileutils
   - pkg/homedir
-  - pkg/stdcopy
   - pkg/idtools
   - pkg/ioutils
   - pkg/longpath
   - pkg/pools
   - pkg/promise
+  - pkg/stdcopy
   - pkg/system
 - name: github.com/docker/engine-api
-  version: b66d7d91dbde8b568eab9587fe9cbdd08506ed2e
+  version: 8d8fffdf863b12d03c76abf6ca1377e6f8f4e549
   subpackages:
-  - types/swarm
   - types/filters
   - types/mount
+  - types/swarm
   - types/versions
 - name: github.com/docker/go-units
   version: eb879ae3e2b84e2a142af415b679ddeda47ec71c
 - name: github.com/fsouza/go-dockerclient
   version: 5ffc56c4f7ce8d150a5c770dd7166b86bfd486e5
+- name: github.com/gin-gonic/gin
+  version: f931d1ea80ae95a6fc739213cdd9399bd2967fb6
 - name: github.com/go-fsnotify/fsnotify
   version: f12c6236fe7b5cf6bcf30e5935d08cb079d78334
 - name: github.com/goanywhere/fs
@@ -33,7 +35,7 @@ imports:
 - name: github.com/hashicorp/go-cleanhttp
   version: ad28ea4487f05916463e2423a55166280e8254b5
 - name: github.com/opencontainers/runc
-  version: 1e319efa3639a32d07a63e0b11f5a6f8b6aabe06
+  version: 9b53b362e2036d3d4c41bca62edf0482b80665a6
   subpackages:
   - libcontainer/system
   - libcontainer/user
@@ -50,4 +52,4 @@ imports:
   version: a646d33e2ee3172a661fc09bca23bb4889a41bc8
   subpackages:
   - unix
-devImports: []
+testImports: []

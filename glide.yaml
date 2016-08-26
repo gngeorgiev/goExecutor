@@ -3,4 +3,4 @@ import:
 - package: github.com/fsouza/go-dockerclient
 - package: github.com/satori/go.uuid
 - package: github.com/goanywhere/fs
-- package: github.com/go-fsnotify/fsnotify
+- package: github.com/gin-gonic/gin

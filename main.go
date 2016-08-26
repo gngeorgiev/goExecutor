@@ -5,7 +5,7 @@ import (
 
 	"log"
 
-	"github.com/gngeorgiev/goExecutor/executor"
+	"github.com/gngeorgiev/goExecutor/apiServer"
 )
 
 var (
@@ -21,19 +21,19 @@ func init() {
 }
 
 func main() {
-	flag.Parse()
+	//flag.Parse()
 
-	if image == "" {
-		log.Fatal("Specify a docker image to run the code into")
-	}
+	//if image == "" {
+	//	log.Fatal("Specify a docker image to run the code into")
+	//}
+	//
+	//if file == "" {
+	//	log.Fatal("Specify a file with code to run")
+	//}
+	//
+	//if command == "" {
+	//	log.Fatal("Specify a command to execute the code")
+	//}
 
-	if file == "" {
-		log.Fatal("Specify a file with code to run")
-	}
-
-	if command == "" {
-		log.Fatal("Specify a command to execute the code")
-	}
-
-	log.Println(executor.Run(executor.ExecutorParams{image, file, command}))
+	log.Fatal(apiServer.Listen())
 }
