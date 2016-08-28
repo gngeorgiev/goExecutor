@@ -19,7 +19,7 @@ import (
 const (
 	workDir       = "/goExecutor"
 	tag           = "goExecutor-"
-	maxContainers = 10
+	maxContainers = 50
 )
 
 type ExecutorParams struct {
@@ -50,7 +50,7 @@ func Execute(p ExecutorParams) (ExecutionResult, error) {
 		return ExecutionResult{}, cleanupWorkspaceError
 	}
 
-	returnWorkerToPool(p, w)
+	go returnWorkerToPool(p, w)
 
 	return ExecutionResult{
 		Result:      execResult,

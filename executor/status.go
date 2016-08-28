@@ -1,16 +1,19 @@
 package executor
 
 type ExecutorStatus struct {
-	Workers map[string]int `json:"workers"`
+	TotalWorkers map[string]int `json:"totalWorkers"`
+	FreeWorkers  map[string]int `json:"freeWorkers"`
 }
 
 func Status() *ExecutorStatus {
 	status := &ExecutorStatus{
-		Workers: make(map[string]int),
+		TotalWorkers: make(map[string]int),
+		FreeWorkers:  make(map[string]int),
 	}
 
 	for k := range workers {
-		status.Workers[k] = len(workers[k])
+		status.TotalWorkers[k] = totalWorkersCount(k)
+		status.FreeWorkers[k] = workersCount(k)
 	}
 
 	return status

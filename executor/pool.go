@@ -15,18 +15,38 @@ import (
 
 var (
 	workers           map[string]chan PoolWorker
+	totalWorkers      map[string]int
 	poolLock          sync.Mutex
 	resizeWorkersLock sync.Mutex
+	createWorkersLock sync.Mutex
 )
 
 func init() {
+	groupedWorkers, getAllWorkersError := getAllWorkers()
+	if getAllWorkersError != nil {
+		log.Fatal(fmt.Sprintf("Error getting initial pool of workers: %s", getAllWorkersError))
+	}
+
+	workers = make(map[string]chan PoolWorker)
+	totalWorkers = make(map[string]int)
+	for imageKey, workersValue := range groupedWorkers {
+		workers[imageKey] = make(chan PoolWorker, len(workersValue))
+		for _, worker := range workersValue {
+			workers[imageKey] <- worker
+		}
+
+		totalWorkers[imageKey] = len(workersValue)
+	}
+}
+
+func getAllWorkers() (map[string][]PoolWorker, error) {
 	client := getDockerClient()
 	containers, listContainersError := client.ListContainers(docker.ListContainersOptions{
 		Filters: map[string][]string{"name": {tag}},
 	})
 
 	if listContainersError != nil {
-		log.Fatal(fmt.Sprintf("Error getting initial pool of containers: %s", listContainersError))
+		return nil, listContainersError
 	}
 
 	groupedWorkers := map[string][]PoolWorker{}
@@ -37,45 +57,60 @@ func init() {
 
 		container, inspectError := client.InspectContainer(c.ID)
 		if inspectError != nil {
-			log.Fatal(fmt.Sprintf("Error inspecting container during pool inititialization: %s", inspectError))
+			return nil, inspectError
 		}
 
 		groupedWorkers[c.Image] = append(groupedWorkers[c.Image], newPoolWorker(container))
 	}
 
-	workers = make(map[string]chan PoolWorker)
-	for imageKey, workersValue := range groupedWorkers {
-		workers[imageKey] = make(chan PoolWorker, len(workersValue))
-		for _, worker := range workersValue {
-			workers[imageKey] <- worker
-		}
-	}
+	return groupedWorkers, nil
 }
 
 func returnWorkerToPool(p ExecutorParams, w PoolWorker) {
 	log.Println("Returing the worker to the pool")
 	workers[p.Image] <- w
+	log.Println("Returned worker to the pool")
 }
 
 func getWorkerFromPool(p ExecutorParams) PoolWorker {
 	log.Println("Getting worker from pool")
 	poolLock.Lock()
-	log.Println(workersCount(p))
-	if workers[p.Image] == nil || workersCount(p) == 0 {
-		createWorkers(p)
+	if workers[p.Image] == nil {
+		workers[p.Image] = make(chan PoolWorker, 1)
 	}
+
+	log.Println("Checking if creating new workers is neccesary")
+	if workers[p.Image] == nil || workersCount(p.Image) <= totalWorkersCount(p.Image)/2 {
+		go createWorkers(p)
+	}
+
 	poolLock.Unlock()
-	w := <-workers[p.Image]
-	log.Println(workersCount(p))
+
+	var w PoolWorker
+	for {
+		worker := <-workers[p.Image]
+		if worker == (PoolWorker{}) {
+			continue
+		}
+
+		w = worker
+		break
+	}
+
+	log.Println(fmt.Sprintf("Available workers in pool: %d", workersCount(p.Image)))
 	return w
 }
 
-func workersCount(p ExecutorParams) int {
-	return len(workers[p.Image])
+func workersCount(image string) int {
+	return len(workers[image])
 }
 
-func resizeWorkers(p ExecutorParams, newSize int) {
-	log.Println(fmt.Sprintf("Resizing workers pool from %d to %d", workersCount(p), newSize))
+func totalWorkersCount(image string) int {
+	return totalWorkers[image]
+}
+
+func resizeWorkers(p ExecutorParams, newSize int) error {
+	log.Println(fmt.Sprintf("Resizing workers pool from %d to %d", totalWorkersCount(p.Image), newSize))
 
 	resizeWorkersLock.Lock()
 	defer resizeWorkersLock.Unlock()
@@ -83,22 +118,30 @@ func resizeWorkers(p ExecutorParams, newSize int) {
 	newWorkers := make(chan PoolWorker, newSize)
 	oldWorkers := workers[p.Image]
 
-	if len(oldWorkers) > 0 {
-		for w := range oldWorkers {
-			newWorkers <- w
-		}
+	allWorkers, getAllWorkersError := getAllWorkers()
+	if getAllWorkersError != nil {
+		return getAllWorkersError
 	}
 
 	if oldWorkers != nil {
 		close(oldWorkers)
 	}
 
+	allWorkersForImage := allWorkers[p.Image]
+	for _, worker := range allWorkersForImage {
+		newWorkers <- worker
+	}
+
 	workers[p.Image] = newWorkers
+	return nil
 }
 
 func createWorkers(p ExecutorParams) {
-	log.Println("Checking if creating new workers is neccesary")
-	currentContainersCount := workersCount(p)
+	log.Println("Creating new workers")
+	createWorkersLock.Lock()
+	defer createWorkersLock.Unlock()
+
+	currentContainersCount := totalWorkersCount(p.Image)
 	if currentContainersCount >= maxContainers {
 		log.Println(fmt.Sprintf("Reached maximum amount of containers %d", currentContainersCount))
 		return
@@ -114,30 +157,33 @@ func createWorkers(p ExecutorParams) {
 		}
 	}
 
-	if newContainersCount > workersCount(p) {
-		resizeWorkers(p, newContainersCount)
+	if newContainersCount > currentContainersCount {
+		resizeWorkersError := resizeWorkers(p, newContainersCount)
+		if resizeWorkersError != nil {
+			log.Println(fmt.Sprintf("Error while resizing workers %s", resizeWorkersError))
+		}
 	}
 
-	go func() {
-		for i := currentContainersCount; i < newContainersCount; i++ {
-			log.Println(fmt.Sprintf("Creating new container #%d", i))
-			pullImageError := ensureImageExists(p.Image)
-			if pullImageError != nil {
-				log.Println(fmt.Sprintf("Error while pulling image %s,: %s", p.Image, pullImageError))
-				break
-			}
+	totalWorkers[p.Image] = newContainersCount
 
-			newWorker, createWorkerError := createWorker(p)
-			if createWorkerError != nil {
-				log.Println(fmt.Sprintf("Error while creating a worker, retrying... %s", createWorkerError))
-				i--
-				continue
-			}
-
-			log.Println("Created a new worker")
-			returnWorkerToPool(p, newWorker)
+	for i := currentContainersCount; i < newContainersCount; i++ {
+		log.Println(fmt.Sprintf("Creating new container #%d", i))
+		pullImageError := ensureImageExists(p.Image)
+		if pullImageError != nil {
+			log.Println(fmt.Sprintf("Error while pulling image %s,: %s", p.Image, pullImageError))
+			break
 		}
-	}()
+
+		newWorker, createWorkerError := createWorker(p)
+		if createWorkerError != nil {
+			log.Println(fmt.Sprintf("Error while creating a worker, retrying... %s", createWorkerError))
+			i--
+			continue
+		}
+
+		log.Println("Created a new worker")
+		returnWorkerToPool(p, newWorker)
+	}
 }
 
 func ensureImageExists(image string) error {
