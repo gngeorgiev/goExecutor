@@ -181,7 +181,7 @@ func createWorkers(p ExecutorParams) {
 			continue
 		}
 
-		log.Println("Created a new worker")
+		log.Println(fmt.Sprintf("Created a new worker %s", newWorker))
 		returnWorkerToPool(p, newWorker)
 	}
 }
