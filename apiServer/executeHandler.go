@@ -17,10 +17,10 @@ import (
 )
 
 type ExecuteRequest struct {
-	Code     string `json:"code"`
-	Language string `json:"language"`
-	Image    string `json:"image"`
-	Command  string `json:"command"`
+	Code     string   `json:"code"`
+	Language string   `json:"language"`
+	Image    string   `json:"image"`
+	Command  []string `json:"command"`
 }
 
 var (

@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"path"
 
 	"os"
@@ -12,7 +11,15 @@ import (
 
 	"fmt"
 
-	"github.com/fsouza/go-dockerclient"
+	"time"
+
+	"net/http"
+
+	"encoding/json"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gngeorgiev/goExecutor/utils"
 	"github.com/goanywhere/fs"
 )
 
@@ -23,7 +30,8 @@ const (
 )
 
 type ExecutorParams struct {
-	Image, File, Command string
+	Image, File string
+	Command     []string
 }
 
 type ExecutionResult struct {
@@ -40,7 +48,7 @@ func Execute(p ExecutorParams) (ExecutionResult, error) {
 		return ExecutionResult{}, prepareWorkspaceError
 	}
 
-	execResult, execError := execContainerCommand(w.ContainerId, p.Command)
+	execResult, execError := execContainerCommand(w.IPAddress, w.Port, p.Command)
 	if execError != nil {
 		return ExecutionResult{}, execError
 	}
@@ -64,6 +72,7 @@ func workspaceFileName(file string) string {
 }
 
 func cleanupWorkspace(workspace string) error {
+	defer utils.TrackTime(time.Now(), "cleanupWorkspace took %s")
 	log.Println("Cleaning up container workspace")
 	files, readDirError := ioutil.ReadDir(workspace)
 	if readDirError != nil {
@@ -81,6 +90,7 @@ func cleanupWorkspace(workspace string) error {
 }
 
 func prepareWorkspaceFile(workspace, file string) error {
+	defer utils.TrackTime(time.Now(), "prepareWorkspaceFile took: %s")
 	log.Println("Preparing execution workspace")
 	workspaceFile := workspaceFileName(file)
 	fullDestFilePath := path.Join(workspace, workspaceFile)
@@ -92,27 +102,37 @@ func prepareWorkspaceFile(workspace, file string) error {
 	return nil
 }
 
-func execContainerCommand(id, cmd string) (string, error) {
+func execContainerCommand(address, port string, cmd []string) (string, error) {
+	defer utils.TrackTime(time.Now(), "execContainerCommand took: %s")
 	log.Println("Executing container command")
-	client := getDockerClient()
-	exec, createExecError := client.CreateExec(docker.CreateExecOptions{
-		AttachStdout: true,
-		Tty:          true,
-		Cmd:          []string{"/bin/sh", "-c", cmd},
-		Container:    id,
-	})
 
-	if createExecError != nil {
-		return "", createExecError
+	body := gin.H{"command": cmd}
+	bodyJson, marshalError := json.Marshal(body)
+	if marshalError != nil {
+		return "", marshalError
 	}
 
-	var output bytes.Buffer
-	startExecError := client.StartExec(exec.ID, docker.StartExecOptions{
-		OutputStream: &output,
-	})
-	if startExecError != nil {
-		return "", startExecError
+	r, requestError := http.NewRequest(
+		http.MethodPost,
+		fmt.Sprintf("http://%s:%s/execute", address, port),
+		strings.NewReader(string(bodyJson)),
+	)
+
+	if requestError != nil {
+		return "", requestError
 	}
 
-	return output.String(), nil
+	response, doRequestError := http.DefaultClient.Do(r)
+	if doRequestError != nil {
+		return "", doRequestError
+	}
+
+	defer response.Body.Close()
+	b, readBodyError := ioutil.ReadAll(response.Body)
+	if readBodyError != nil {
+		return "", readBodyError
+	}
+
+	result := string(b)
+	return result, nil
 }

@@ -21,6 +21,8 @@ func init() {
 }
 
 func main() {
+	log.SetFlags(log.Lshortfile | log.Ltime)
+
 	//flag.Parse()
 
 	//if image == "" {

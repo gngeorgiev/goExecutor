@@ -9,6 +9,12 @@ import (
 
 	"sync"
 
+	"time"
+
+	"io"
+
+	"os/exec"
+
 	"github.com/fsouza/go-dockerclient"
 	"github.com/gngeorgiev/goExecutor/utils"
 )
@@ -19,6 +25,10 @@ var (
 	poolLock          sync.Mutex
 	resizeWorkersLock sync.Mutex
 	createWorkersLock sync.Mutex
+)
+
+const (
+	ContainerExecutor = "containerExecutor"
 )
 
 func init() {
@@ -67,12 +77,14 @@ func getAllWorkers() (map[string][]PoolWorker, error) {
 }
 
 func returnWorkerToPool(p ExecutorParams, w PoolWorker) {
+	defer utils.TrackTime(time.Now(), "returnWorkerToPool took %s")
 	log.Println("Returing the worker to the pool")
 	workers[p.Image] <- w
 	log.Println("Returned worker to the pool")
 }
 
 func getWorkerFromPool(p ExecutorParams) PoolWorker {
+	defer utils.TrackTime(time.Now(), "getWorkerFromPool took: %s")
 	log.Println("Getting worker from pool")
 	poolLock.Lock()
 	if workers[p.Image] == nil {
@@ -252,7 +264,6 @@ func createContainer(workspaceFolder, operationId, image string) (*docker.Contai
 	c, createContainerError := client.CreateContainer(docker.CreateContainerOptions{
 		Name: containerName,
 		Config: &docker.Config{
-			Tty:        true,
 			Image:      image,
 			Hostname:   operationId,
 			WorkingDir: workDir,
@@ -262,13 +273,24 @@ func createContainer(workspaceFolder, operationId, image string) (*docker.Contai
 				RW:          true,
 			}},
 			Env: []string{
-				fmt.Sprintf("name=%s", containerName),
-				fmt.Sprintf("id=%s", operationId),
-				fmt.Sprintf("workspace=%s", workspaceFolder),
+				fmt.Sprintf("%s=%s", ContainerEnvNameKey, containerName),
+				fmt.Sprintf("%s=%s", ContainerEnvIdKey, operationId),
+				fmt.Sprintf("%s=%s", ContainerEnvWorkspaceKey, workspaceFolder),
+				fmt.Sprintf("%s=%s", ContainerEnvWorkdirKey, workDir),
+			},
+			Cmd: []string{
+				fmt.Sprintf("./%s", ContainerExecutor),
+			},
+			ExposedPorts: map[docker.Port]struct{}{
+				"8099/tcp": {},
 			},
 		},
 		HostConfig: &docker.HostConfig{
 			Binds: []string{fmt.Sprintf("%s:%s", workspaceFolder, workDir)},
+			PortBindings: map[docker.Port][]docker.PortBinding{
+				"8099/tcp": {{HostIP: "", HostPort: ""}},
+			},
+			PublishAllPorts: true,
 		},
 	})
 
@@ -285,6 +307,34 @@ func prepareContainerWorkspace(id string) (string, error) {
 	mkdirErr := os.MkdirAll(folder, os.ModePerm)
 	if mkdirErr != nil {
 		return "", mkdirErr
+	}
+
+	containerExecutorSrc := path.Join(utils.GetWd(), ContainerExecutor, ContainerExecutor)
+	src, openFileErr := os.Open(containerExecutorSrc)
+	if openFileErr != nil {
+		return "", openFileErr
+	}
+	defer src.Close()
+
+	containerExecutorDest := path.Join(folder, ContainerExecutor)
+	dest, outFileErr := os.Create(containerExecutorDest)
+	if outFileErr != nil {
+		return "", outFileErr
+	}
+
+	_, copyErr := io.Copy(dest, src)
+	if copyErr != nil {
+		return "", copyErr
+	}
+
+	destCloseError := dest.Close()
+	if destCloseError != nil {
+		return "", destCloseError
+	}
+
+	_, chmodErr := exec.Command("chmod", "+x", containerExecutorDest).Output()
+	if chmodErr != nil {
+		return "", chmodErr
 	}
 
 	return folder, nil
