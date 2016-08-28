@@ -50,7 +50,7 @@ func Execute(p ExecutorParams) (ExecutionResult, error) {
 		return ExecutionResult{}, cleanupWorkspaceError
 	}
 
-	go returnWorkerToPool(p, w)
+	returnWorkerToPool(p, w)
 
 	return ExecutionResult{
 		Result:      execResult,
