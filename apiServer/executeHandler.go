@@ -3,25 +3,9 @@ package apiServer
 import (
 	"net/http"
 
-	"log"
-	"os"
-
-	"path"
-
-	"fmt"
-	"io/ioutil"
-
 	"github.com/gin-gonic/gin"
 	"github.com/gngeorgiev/goExecutor/executor"
-	"github.com/gngeorgiev/goExecutor/utils"
 )
-
-type ExecuteRequest struct {
-	Code     string   `json:"code"`
-	Language string   `json:"language"`
-	Image    string   `json:"image"`
-	Command  []string `json:"command"`
-}
 
 var (
 	pwd          string
@@ -29,50 +13,46 @@ var (
 )
 
 func init() {
-	wd, wdError := os.Getwd()
-	if wdError != nil {
-		log.Fatal(wdError)
-	}
-
-	pwd = wd
-	tempFilesDir = path.Join(pwd, "tmp")
-	mkdirError := os.MkdirAll(tempFilesDir, os.ModePerm)
-	if mkdirError != nil {
-		log.Fatal(mkdirError)
-	}
+	//wd, wdError := os.Getwd()
+	//if wdError != nil {
+	//	log.Fatal(wdError)
+	//}
+	//
+	//pwd = wd
+	//tempFilesDir = path.Join(pwd, "tmp")
+	//mkdirError := os.MkdirAll(tempFilesDir, os.ModePerm)
+	//if mkdirError != nil {
+	//	log.Fatal(mkdirError)
+	//}
 }
 
 func executeHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var request ExecuteRequest
-		bindBodyError := c.BindJSON(&request)
+		var params executor.ExecutorParams
+		bindBodyError := c.BindJSON(&params)
 		if bindBodyError != nil {
-			c.JSON(http.StatusBadRequest, bindBodyError)
+			c.String(http.StatusBadRequest, bindBodyError.Error())
 			return
 		}
 
-		filename := fmt.Sprintf("%s.%s", utils.RandomString(), request.Language)
-		filePath := path.Join(tempFilesDir, filename)
+		//filename := fmt.Sprintf("%s.%s", utils.RandomString(), params.Language)
+		//filePath := path.Join(tempFilesDir, filename)
+		//
+		//writeFileError := ioutil.WriteFile(filePath, []byte(params.Code), os.ModePerm)
+		//if writeFileError != nil {
+		//	c.JSON(http.StatusBadRequest, writeFileError)
+		//	return
+		//}
 
-		writeFileError := ioutil.WriteFile(filePath, []byte(request.Code), os.ModePerm)
-		if writeFileError != nil {
-			c.JSON(http.StatusBadRequest, writeFileError)
-			return
-		}
+		executionResult, executionError := executor.Execute(params)
 
-		executionResult, executionError := executor.Execute(executor.ExecutorParams{
-			Command: request.Command,
-			File:    filePath,
-			Image:   request.Image,
-		})
-
-		removeFileError := os.Remove(filePath)
-		if removeFileError != nil {
-			log.Println(removeFileError)
-		}
+		//removeFileError := os.Remove(filePath)
+		//if removeFileError != nil {
+		//	log.Println(removeFileError)
+		//}
 
 		if executionError != nil {
-			c.JSON(http.StatusInternalServerError, executionError)
+			c.String(http.StatusInternalServerError, executionError.Error())
 			return
 		}
 

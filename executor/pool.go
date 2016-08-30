@@ -11,11 +11,13 @@ import (
 
 	"time"
 
-	"io"
+	"strings"
 
-	"os/exec"
+	"net/http"
 
 	"github.com/fsouza/go-dockerclient"
+	"github.com/gngeorgiev/goExecutor/languages"
+	"github.com/gngeorgiev/goExecutor/languages/baseLanguage"
 	"github.com/gngeorgiev/goExecutor/utils"
 )
 
@@ -23,7 +25,6 @@ var (
 	workers           map[string]chan PoolWorker
 	totalWorkers      map[string]int
 	poolLock          sync.Mutex
-	resizeWorkersLock sync.Mutex
 	createWorkersLock sync.Mutex
 )
 
@@ -70,47 +71,45 @@ func getAllWorkers() (map[string][]PoolWorker, error) {
 			return nil, inspectError
 		}
 
-		groupedWorkers[c.Image] = append(groupedWorkers[c.Image], newPoolWorker(container))
+		for _, env := range container.Config.Env {
+			envSplit := strings.Split(env, "=")
+			if envSplit[0] == ContainerEnvLanguageKey {
+				lang, getLanguageError := languages.GetLanguage(envSplit[1])
+				if getLanguageError != nil {
+					log.Println(fmt.Sprintf("Error while getting language from container env: %s", getLanguageError))
+					continue
+				}
+
+				groupedWorkers[c.Image] = append(groupedWorkers[c.Image], newPoolWorker(container, lang))
+				break
+			}
+		}
+
 	}
 
 	return groupedWorkers, nil
 }
 
 func returnWorkerToPool(p ExecutorParams, w PoolWorker) {
-	defer utils.TrackTime(time.Now(), "returnWorkerToPool took %s")
-	log.Println("Returing the worker to the pool")
 	workers[p.Image] <- w
-	log.Println("Returned worker to the pool")
 }
 
-func getWorkerFromPool(p ExecutorParams) PoolWorker {
-	defer utils.TrackTime(time.Now(), "getWorkerFromPool took: %s")
-	log.Println("Getting worker from pool")
+func getWorkerFromPool(p ExecutorParams, language baseLanguage.Language) PoolWorker {
 	poolLock.Lock()
 	if workers[p.Image] == nil {
-		workers[p.Image] = make(chan PoolWorker, 1)
+		workers[p.Image] = make(chan PoolWorker, maxContainers)
 	}
-
-	log.Println("Checking if creating new workers is neccesary")
-	if workers[p.Image] == nil || workersCount(p.Image) <= totalWorkersCount(p.Image)/2 {
-		go createWorkers(p)
-	}
-
 	poolLock.Unlock()
 
-	var w PoolWorker
-	for {
-		worker := <-workers[p.Image]
-		if worker == (PoolWorker{}) {
-			continue
-		}
-
-		w = worker
-		break
+	wc := workersCount(p.Image)
+	tWc := totalWorkersCount(p.Image)
+	if wc <= tWc/2 {
+		newContainersCount := calculateNewContainersCount(p.Image)
+		createWorkers(p, newContainersCount, language)
 	}
 
-	log.Println(fmt.Sprintf("Available workers in pool: %d", workersCount(p.Image)))
-	return w
+	worker := <-workers[p.Image]
+	return worker
 }
 
 func workersCount(image string) int {
@@ -121,42 +120,11 @@ func totalWorkersCount(image string) int {
 	return totalWorkers[image]
 }
 
-func resizeWorkers(p ExecutorParams, newSize int) error {
-	log.Println(fmt.Sprintf("Resizing workers pool from %d to %d", totalWorkersCount(p.Image), newSize))
-
-	resizeWorkersLock.Lock()
-	defer resizeWorkersLock.Unlock()
-
-	newWorkers := make(chan PoolWorker, newSize)
-	oldWorkers := workers[p.Image]
-
-	allWorkers, getAllWorkersError := getAllWorkers()
-	if getAllWorkersError != nil {
-		return getAllWorkersError
-	}
-
-	if oldWorkers != nil {
-		close(oldWorkers)
-	}
-
-	allWorkersForImage := allWorkers[p.Image]
-	for _, worker := range allWorkersForImage {
-		newWorkers <- worker
-	}
-
-	workers[p.Image] = newWorkers
-	return nil
-}
-
-func createWorkers(p ExecutorParams) {
-	log.Println("Creating new workers")
-	createWorkersLock.Lock()
-	defer createWorkersLock.Unlock()
-
-	currentContainersCount := totalWorkersCount(p.Image)
+func calculateNewContainersCount(image string) int {
+	currentContainersCount := totalWorkersCount(image)
 	if currentContainersCount >= maxContainers {
 		log.Println(fmt.Sprintf("Reached maximum amount of containers %d", currentContainersCount))
-		return
+		return currentContainersCount
 	}
 
 	var newContainersCount int
@@ -169,37 +137,96 @@ func createWorkers(p ExecutorParams) {
 		}
 	}
 
-	if newContainersCount > currentContainersCount {
-		resizeWorkersError := resizeWorkers(p, newContainersCount)
-		if resizeWorkersError != nil {
-			log.Println(fmt.Sprintf("Error while resizing workers %s", resizeWorkersError))
-		}
+	return newContainersCount
+}
+
+func createWorkers(p ExecutorParams, newContainersCount int, language baseLanguage.Language) {
+	createWorkersLock.Lock()
+	defer createWorkersLock.Unlock()
+
+	currentContainersCount := totalWorkersCount(p.Image)
+	if currentContainersCount == newContainersCount {
+		return
 	}
 
-	totalWorkers[p.Image] = newContainersCount
+	log.Println(fmt.Sprintf("Creating more workers: %d, upscaling from : %d", newContainersCount, currentContainersCount))
 
-	for i := currentContainersCount; i < newContainersCount; i++ {
-		log.Println(fmt.Sprintf("Creating new container #%d", i))
+	var createContainerWorker func(i, tries int, wg *sync.WaitGroup)
+	createContainerWorker = func(i, tries int, wg *sync.WaitGroup) {
+		if tries > 3 {
+			log.Println(fmt.Sprintf("Error creating container number #%d after %d tries", i, tries-1))
+			return
+		}
+
+		ok := false
+		defer func() {
+			if !ok {
+				go createContainerWorker(i, tries+1, wg)
+			} else {
+				wg.Done()
+			}
+		}()
+		defer utils.TrackTime(time.Now(), "createContainerWorker took: %s")
+
 		pullImageError := ensureImageExists(p.Image)
 		if pullImageError != nil {
 			log.Println(fmt.Sprintf("Error while pulling image %s,: %s", p.Image, pullImageError))
+			return
+		}
+
+		newWorker, createWorkerError := createWorker(p, language)
+		if createWorkerError != nil {
+			log.Println(fmt.Sprintf("Error while creating a worker, retrying... %s", createWorkerError))
+			return
+		}
+
+		healthCheckCount := 5
+		healthCheckError := healthCheckContainer(newWorker, healthCheckCount)
+		if healthCheckError != nil {
+			log.Println(fmt.Sprintf("Error while bringing up worker, failed %d health checks %s", healthCheckCount, newWorker))
+			removeContainerError := removeContainer(newWorker)
+			if removeContainerError != nil {
+				log.Println(fmt.Sprintf("Error while removing container %s", removeContainerError))
+			}
+			return
+		}
+
+		returnWorkerToPool(p, newWorker)
+		ok = true
+	}
+
+	wg := sync.WaitGroup{}
+	for i := currentContainersCount; i < newContainersCount; i++ {
+		wg.Add(1)
+		go createContainerWorker(i, 1, &wg)
+	}
+
+	wg.Wait()
+	totalWorkers[p.Image] = newContainersCount
+}
+
+func healthCheckContainer(w PoolWorker, healthCheckCount int) error {
+	var healthError error
+	for i := 0; i < healthCheckCount; i++ {
+		_, healthError = http.Get(fmt.Sprintf("http://%s:%s/health", w.IPAddress, w.Port))
+		if healthError == nil {
 			break
 		}
 
-		newWorker, createWorkerError := createWorker(p)
-		if createWorkerError != nil {
-			log.Println(fmt.Sprintf("Error while creating a worker, retrying... %s", createWorkerError))
-			i--
-			continue
-		}
-
-		log.Println(fmt.Sprintf("Created a new worker %s", newWorker))
-		returnWorkerToPool(p, newWorker)
+		time.Sleep(100 * time.Millisecond)
 	}
+
+	return healthError
+}
+
+func removeContainer(w PoolWorker) error {
+	return getDockerClient().RemoveContainer(docker.RemoveContainerOptions{
+		ID:    w.ContainerId,
+		Force: true,
+	})
 }
 
 func ensureImageExists(image string) error {
-	log.Println("Ensuring that the docker image exists")
 	client := getDockerClient()
 	images, listImagesError := client.ListImages(docker.ListImagesOptions{Filter: image})
 	if listImagesError != nil {
@@ -213,15 +240,19 @@ func ensureImageExists(image string) error {
 	return client.PullImage(docker.PullImageOptions{Repository: image}, docker.AuthConfiguration{})
 }
 
-func createWorker(p ExecutorParams) (PoolWorker, error) {
-	log.Println("Creating a worker")
+func createWorker(p ExecutorParams, language baseLanguage.Language) (PoolWorker, error) {
 	operationId := utils.RandomString()
 	folder, copyFileError := prepareContainerWorkspace(operationId)
 	if copyFileError != nil {
 		return PoolWorker{}, copyFileError
 	}
 
-	c, createContainerError := createContainer(folder, operationId, p.Image)
+	prepareContainerFilesError := language.PrepareContainerFiles(folder)
+	if prepareContainerFilesError != nil {
+		return PoolWorker{}, prepareContainerFilesError
+	}
+
+	c, createContainerError := createContainer(folder, operationId, p.Image, language)
 	if createContainerError != nil {
 		return PoolWorker{}, createContainerError
 	}
@@ -236,17 +267,15 @@ func createWorker(p ExecutorParams) (PoolWorker, error) {
 		return PoolWorker{}, inspectError
 	}
 
-	return newPoolWorker(container), nil
+	return newPoolWorker(container, language), nil
 }
 
 func inspectContainer(id string) (*docker.Container, error) {
-	log.Println("Inspecting the container")
 	client := getDockerClient()
 	return client.InspectContainer(id)
 }
 
 func startContainer(id string) error {
-	log.Println("Starting the container")
 	client := getDockerClient()
 	startContainerError := client.StartContainer(id, nil)
 	if startContainerError != nil {
@@ -256,8 +285,7 @@ func startContainer(id string) error {
 	return nil
 }
 
-func createContainer(workspaceFolder, operationId, image string) (*docker.Container, error) {
-	log.Println("Creating the container")
+func createContainer(workspaceFolder, operationId, image string, language baseLanguage.Language) (*docker.Container, error) {
 	client := getDockerClient()
 	containerName := fmt.Sprintf("%s%s", tag, operationId)
 
@@ -266,29 +294,28 @@ func createContainer(workspaceFolder, operationId, image string) (*docker.Contai
 		Config: &docker.Config{
 			Image:      image,
 			Hostname:   operationId,
-			WorkingDir: workDir,
+			WorkingDir: ContainerWorkDir,
 			Mounts: []docker.Mount{{
 				Source:      workspaceFolder,
-				Destination: workDir,
+				Destination: ContainerWorkDir,
 				RW:          true,
 			}},
 			Env: []string{
 				fmt.Sprintf("%s=%s", ContainerEnvNameKey, containerName),
 				fmt.Sprintf("%s=%s", ContainerEnvIdKey, operationId),
 				fmt.Sprintf("%s=%s", ContainerEnvWorkspaceKey, workspaceFolder),
-				fmt.Sprintf("%s=%s", ContainerEnvWorkdirKey, workDir),
+				fmt.Sprintf("%s=%s", ContainerEnvWorkdirKey, ContainerWorkDir),
+				fmt.Sprintf("%s=%s", ContainerEnvLanguageKey, language.GetName()),
 			},
-			Cmd: []string{
-				fmt.Sprintf("./%s", ContainerExecutor),
-			},
+			Cmd: language.GetCommand(),
 			ExposedPorts: map[docker.Port]struct{}{
-				"8099/tcp": {},
+				docker.Port(language.GetPort()): {},
 			},
 		},
 		HostConfig: &docker.HostConfig{
-			Binds: []string{fmt.Sprintf("%s:%s", workspaceFolder, workDir)},
+			Binds: []string{fmt.Sprintf("%s:%s", workspaceFolder, ContainerWorkDir)},
 			PortBindings: map[docker.Port][]docker.PortBinding{
-				"8099/tcp": {{HostIP: "", HostPort: ""}},
+				docker.Port(language.GetPort()): {{HostIP: "", HostPort: ""}},
 			},
 			PublishAllPorts: true,
 		},
@@ -302,40 +329,39 @@ func createContainer(workspaceFolder, operationId, image string) (*docker.Contai
 }
 
 func prepareContainerWorkspace(id string) (string, error) {
-	log.Println("Preparing the container workspace")
-	folder := path.Join(os.ExpandEnv("$HOME"), fmt.Sprintf("%s/%s", workDir, id))
+	folder := path.Join(os.ExpandEnv("$HOME"), fmt.Sprintf("%s/%s", ContainerWorkDir, id))
 	mkdirErr := os.MkdirAll(folder, os.ModePerm)
 	if mkdirErr != nil {
 		return "", mkdirErr
 	}
-
-	containerExecutorSrc := path.Join(utils.GetWd(), ContainerExecutor, ContainerExecutor)
-	src, openFileErr := os.Open(containerExecutorSrc)
-	if openFileErr != nil {
-		return "", openFileErr
-	}
-	defer src.Close()
-
-	containerExecutorDest := path.Join(folder, ContainerExecutor)
-	dest, outFileErr := os.Create(containerExecutorDest)
-	if outFileErr != nil {
-		return "", outFileErr
-	}
-
-	_, copyErr := io.Copy(dest, src)
-	if copyErr != nil {
-		return "", copyErr
-	}
-
-	destCloseError := dest.Close()
-	if destCloseError != nil {
-		return "", destCloseError
-	}
-
-	_, chmodErr := exec.Command("chmod", "+x", containerExecutorDest).Output()
-	if chmodErr != nil {
-		return "", chmodErr
-	}
+	//
+	//containerExecutorSrc := path.Join(utils.GetWd(), ContainerExecutor, ContainerExecutor)
+	//src, openFileErr := os.Open(containerExecutorSrc)
+	//if openFileErr != nil {
+	//	return "", openFileErr
+	//}
+	//defer src.Close()
+	//
+	//containerExecutorDest := path.Join(folder, ContainerExecutor)
+	//dest, outFileErr := os.Create(containerExecutorDest)
+	//if outFileErr != nil {
+	//	return "", outFileErr
+	//}
+	//
+	//_, copyErr := io.Copy(dest, src)
+	//if copyErr != nil {
+	//	return "", copyErr
+	//}
+	//
+	//destCloseError := dest.Close()
+	//if destCloseError != nil {
+	//	return "", destCloseError
+	//}
+	//
+	//_, chmodErr := exec.Command("chmod", "+x", containerExecutorDest).Output()
+	//if chmodErr != nil {
+	//	return "", chmodErr
+	//}
 
 	return folder, nil
 }

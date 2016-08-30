@@ -1,37 +1,17 @@
 package executor
 
-import (
-	"path"
-
-	"os"
-
-	"io/ioutil"
-
-	"log"
-
-	"fmt"
-
-	"time"
-
-	"net/http"
-
-	"encoding/json"
-	"strings"
-
-	"github.com/gin-gonic/gin"
-	"github.com/gngeorgiev/goExecutor/utils"
-	"github.com/goanywhere/fs"
-)
+import "github.com/gngeorgiev/goExecutor/languages"
 
 const (
-	workDir       = "/goExecutor"
-	tag           = "goExecutor-"
-	maxContainers = 50
+	ContainerWorkDir = "/goExecutor"
+	tag              = "goExecutor-"
+	maxContainers    = 128
 )
 
 type ExecutorParams struct {
-	Image, File string
-	Command     []string
+	Code     string `json:"code"`
+	Language string `json:"language"`
+	Image    string `json:"image"`
 }
 
 type ExecutionResult struct {
@@ -41,21 +21,16 @@ type ExecutionResult struct {
 }
 
 func Execute(p ExecutorParams) (ExecutionResult, error) {
-	w := getWorkerFromPool(p)
-
-	prepareWorkspaceError := prepareWorkspaceFile(w.Workspace, p.File)
-	if prepareWorkspaceError != nil {
-		return ExecutionResult{}, prepareWorkspaceError
+	language, getLanguageError := languages.GetLanguage(p.Language)
+	if getLanguageError != nil {
+		return ExecutionResult{}, getLanguageError
 	}
 
-	execResult, execError := execContainerCommand(w.IPAddress, w.Port, p.Command)
+	w := getWorkerFromPool(p, language)
+
+	execResult, execError := language.ExecuteCode(w.IPAddress, w.Port, p.Code)
 	if execError != nil {
 		return ExecutionResult{}, execError
-	}
-
-	cleanupWorkspaceError := cleanupWorkspace(w.Workspace)
-	if cleanupWorkspaceError != nil {
-		return ExecutionResult{}, cleanupWorkspaceError
 	}
 
 	returnWorkerToPool(p, w)
@@ -65,74 +40,4 @@ func Execute(p ExecutorParams) (ExecutionResult, error) {
 		ContainerId: w.ContainerId,
 		ExecutionId: w.Id,
 	}, nil
-}
-
-func workspaceFileName(file string) string {
-	return fmt.Sprintf("code%s", path.Ext(file))
-}
-
-func cleanupWorkspace(workspace string) error {
-	defer utils.TrackTime(time.Now(), "cleanupWorkspace took %s")
-	log.Println("Cleaning up container workspace")
-	files, readDirError := ioutil.ReadDir(workspace)
-	if readDirError != nil {
-		return readDirError
-	}
-
-	for _, f := range files {
-		removeError := os.Remove(path.Join(workspace, f.Name()))
-		if removeError != nil {
-			return removeError
-		}
-	}
-
-	return nil
-}
-
-func prepareWorkspaceFile(workspace, file string) error {
-	defer utils.TrackTime(time.Now(), "prepareWorkspaceFile took: %s")
-	log.Println("Preparing execution workspace")
-	workspaceFile := workspaceFileName(file)
-	fullDestFilePath := path.Join(workspace, workspaceFile)
-	copyErr := fs.Copy(file, fullDestFilePath)
-	if copyErr != nil {
-		return copyErr
-	}
-
-	return nil
-}
-
-func execContainerCommand(address, port string, cmd []string) (string, error) {
-	defer utils.TrackTime(time.Now(), "execContainerCommand took: %s")
-	log.Println("Executing container command")
-
-	body := gin.H{"command": cmd}
-	bodyJson, marshalError := json.Marshal(body)
-	if marshalError != nil {
-		return "", marshalError
-	}
-
-	r, requestError := http.NewRequest(
-		http.MethodPost,
-		fmt.Sprintf("http://%s:%s/execute", address, port),
-		strings.NewReader(string(bodyJson)),
-	)
-
-	if requestError != nil {
-		return "", requestError
-	}
-
-	response, doRequestError := http.DefaultClient.Do(r)
-	if doRequestError != nil {
-		return "", doRequestError
-	}
-
-	defer response.Body.Close()
-	b, readBodyError := ioutil.ReadAll(response.Body)
-	if readBodyError != nil {
-		return "", readBodyError
-	}
-
-	result := string(b)
-	return result, nil
 }
