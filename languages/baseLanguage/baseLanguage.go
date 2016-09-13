@@ -14,6 +14,7 @@ type Language interface {
 	PrepareContainerFiles(folder string) error
 	GetCommand() []string
 	GetPort() string
+	GetDefaultImage() string
 }
 
 type BaseLanguage struct {

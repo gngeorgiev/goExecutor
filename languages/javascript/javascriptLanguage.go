@@ -24,6 +24,10 @@ func (j JavascriptLanguage) GetName() string {
 	return "js"
 }
 
+func (j JavascriptLanguage) GetDefaultImage() string {
+	return "node:latest"
+}
+
 func (j JavascriptLanguage) PrepareWorkspace(workspace string) error { //TODO: npm cache etc
 	return nil
 }

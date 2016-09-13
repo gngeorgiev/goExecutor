@@ -1,4 +1,4 @@
-package executor
+package clients
 
 import (
 	"log"
@@ -21,6 +21,6 @@ func init() {
 	dockerClient = client
 }
 
-func getDockerClient() *docker.Client {
+func GetDockerClient() *docker.Client {
 	return dockerClient
 }

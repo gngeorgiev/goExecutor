@@ -1,6 +1,9 @@
 package executor
 
-import "github.com/gngeorgiev/goExecutor/languages"
+import (
+	"github.com/gngeorgiev/goExecutor/languages"
+	"github.com/gngeorgiev/goExecutor/languages/baseLanguage"
+)
 
 const (
 	ContainerWorkDir = "/goExecutor"
@@ -9,7 +12,7 @@ const (
 )
 
 type ExecutorParams struct {
-	Code     string `json:"code"`
+	Key      string `json:"code"`
 	Language string `json:"language"`
 	Image    string `json:"image"`
 }
@@ -20,20 +23,29 @@ type ExecutionResult struct {
 	ExecutionId string `json:"executionId"`
 }
 
+func assignDefaultParams(p *ExecutorParams, l baseLanguage.Language) ExecutorParams {
+	if p.Image == "" {
+		p.Image = l.GetDefaultImage()
+	}
+
+	return *p
+}
+
 func Execute(p ExecutorParams) (ExecutionResult, error) {
 	language, getLanguageError := languages.GetLanguage(p.Language)
 	if getLanguageError != nil {
 		return ExecutionResult{}, getLanguageError
 	}
 
-	w := getWorkerFromPool(p, language)
+	params := assignDefaultParams(&p, language)
+	w := getWorkerFromPool(params, language)
 
-	execResult, execError := language.ExecuteCode(w.IPAddress, w.Port, p.Code)
+	execResult, execError := language.ExecuteCode(w.IPAddress, w.Port, params.Key)
 	if execError != nil {
 		return ExecutionResult{}, execError
 	}
 
-	returnWorkerToPool(p, w)
+	returnWorkerToPool(params, w)
 
 	return ExecutionResult{
 		Result:      execResult,

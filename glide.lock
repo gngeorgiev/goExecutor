@@ -1,5 +1,5 @@
-hash: cf68833f1126c58065a0f22e468e9d5a56881d5cf3d839f705b76ec0e7519f0a
-updated: 2016-08-27T01:13:12.932001714+03:00
+hash: af8d292918f01bf373d61cd7224edbecc8ceb78b9b23e683210877edeed972bd
+updated: 2016-09-10T10:59:28.839982217+03:00
 imports:
 - name: github.com/docker/docker
   version: bdadcfc1bbb04950c4835cfa4d75f0e480555a2f
@@ -8,19 +8,19 @@ imports:
   - pkg/archive
   - pkg/fileutils
   - pkg/homedir
+  - pkg/stdcopy
   - pkg/idtools
   - pkg/ioutils
   - pkg/longpath
   - pkg/pools
   - pkg/promise
-  - pkg/stdcopy
   - pkg/system
 - name: github.com/docker/engine-api
   version: 8d8fffdf863b12d03c76abf6ca1377e6f8f4e549
   subpackages:
+  - types/swarm
   - types/filters
   - types/mount
-  - types/swarm
   - types/versions
 - name: github.com/docker/go-units
   version: eb879ae3e2b84e2a142af415b679ddeda47ec71c
@@ -28,12 +28,21 @@ imports:
   version: 5ffc56c4f7ce8d150a5c770dd7166b86bfd486e5
 - name: github.com/gin-gonic/gin
   version: f931d1ea80ae95a6fc739213cdd9399bd2967fb6
-- name: github.com/go-fsnotify/fsnotify
-  version: f12c6236fe7b5cf6bcf30e5935d08cb079d78334
+  subpackages:
+  - binding
+  - render
+- name: github.com/go-errors/errors
+  version: a41850380601eeb43f4350f7d17c6bbd8944aaf8
 - name: github.com/goanywhere/fs
   version: 298991472c9fc603a927debee76d69df306c4b9e
+- name: github.com/golang/protobuf
+  version: 2402d76f3d41f928c7902a765dfc872356dd3aad
+  subpackages:
+  - proto
 - name: github.com/hashicorp/go-cleanhttp
   version: ad28ea4487f05916463e2423a55166280e8254b5
+- name: github.com/manucorporat/sse
+  version: ee05b128a739a0fb76c7ebd3ae4810c1de808d6d
 - name: github.com/opencontainers/runc
   version: 9b53b362e2036d3d4c41bca62edf0482b80665a6
   subpackages:
@@ -43,8 +52,10 @@ imports:
   version: 0aa62d5ddceb50dbcb909d790b5345affd3669b6
 - name: github.com/Sirupsen/logrus
   version: 08a8a7c27e3d058a8989316a850daad1c10bf4ab
+- name: godoc.org/gopkg.in/redis.v4
+  version: ""
 - name: golang.org/x/net
-  version: 6c89f9617983ee917132513a791d8b5850fe90c5
+  version: f315505cf3349909cdf013ea56690da34e96a451
   subpackages:
   - context
   - context/ctxhttp
@@ -52,4 +63,10 @@ imports:
   version: a646d33e2ee3172a661fc09bca23bb4889a41bc8
   subpackages:
   - unix
-testImports: []
+- name: gopkg.in/go-playground/validator.v8
+  version: c193cecd124b5cc722d7ee5538e945bdb3348435
+- name: gopkg.in/yaml.v2
+  version: e4d366fc3c7938e2958e662b4258c7a89e1f0e3e
+- name: http://godoc.org/gopkg.in/redis.v4
+  version: ""
+devImports: []

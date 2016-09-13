@@ -16,6 +16,7 @@ import (
 	"net/http"
 
 	"github.com/fsouza/go-dockerclient"
+	"github.com/gngeorgiev/goExecutor/clients"
 	"github.com/gngeorgiev/goExecutor/languages"
 	"github.com/gngeorgiev/goExecutor/languages/baseLanguage"
 	"github.com/gngeorgiev/goExecutor/utils"
@@ -51,7 +52,7 @@ func init() {
 }
 
 func getAllWorkers() (map[string][]PoolWorker, error) {
-	client := getDockerClient()
+	client := clients.GetDockerClient()
 	containers, listContainersError := client.ListContainers(docker.ListContainersOptions{
 		Filters: map[string][]string{"name": {tag}},
 	})
@@ -220,14 +221,14 @@ func healthCheckContainer(w PoolWorker, healthCheckCount int) error {
 }
 
 func removeContainer(w PoolWorker) error {
-	return getDockerClient().RemoveContainer(docker.RemoveContainerOptions{
+	return clients.GetDockerClient().RemoveContainer(docker.RemoveContainerOptions{
 		ID:    w.ContainerId,
 		Force: true,
 	})
 }
 
 func ensureImageExists(image string) error {
-	client := getDockerClient()
+	client := clients.GetDockerClient()
 	images, listImagesError := client.ListImages(docker.ListImagesOptions{Filter: image})
 	if listImagesError != nil {
 		return listImagesError
@@ -271,12 +272,12 @@ func createWorker(p ExecutorParams, language baseLanguage.Language) (PoolWorker,
 }
 
 func inspectContainer(id string) (*docker.Container, error) {
-	client := getDockerClient()
+	client := clients.GetDockerClient()
 	return client.InspectContainer(id)
 }
 
 func startContainer(id string) error {
-	client := getDockerClient()
+	client := clients.GetDockerClient()
 	startContainerError := client.StartContainer(id, nil)
 	if startContainerError != nil {
 		return startContainerError
@@ -286,7 +287,7 @@ func startContainer(id string) error {
 }
 
 func createContainer(workspaceFolder, operationId, image string, language baseLanguage.Language) (*docker.Container, error) {
-	client := getDockerClient()
+	client := clients.GetDockerClient()
 	containerName := fmt.Sprintf("%s%s", tag, operationId)
 
 	c, createContainerError := client.CreateContainer(docker.CreateContainerOptions{
