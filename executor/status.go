@@ -14,8 +14,8 @@ func Status() *ExecutorStatus {
 	}
 
 	for k := range workers {
-		status.TotalWorkers[k] = totalWorkersCount(k)
-		status.FreeWorkers[k] = workersCount(k)
+		status.TotalWorkers[k] = totalWorkersCount()
+		status.FreeWorkers[k] = freeWorkers()
 	}
 
 	return status

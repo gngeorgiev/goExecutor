@@ -102,8 +102,8 @@ func getWorkerFromPool(p ExecutorParams, language baseLanguage.Language) PoolWor
 	}
 	poolLock.Unlock()
 
-	wc := workersCount(p.Image)
-	tWc := totalWorkersCount(p.Image)
+	wc := freeWorkersForImage(p.Image)
+	tWc := totalWorkersCountForImage(p.Image)
 	if wc <= tWc/2 {
 		newContainersCount := calculateNewContainersCount(p.Image)
 		createWorkers(p, newContainersCount, language)
@@ -113,19 +113,37 @@ func getWorkerFromPool(p ExecutorParams, language baseLanguage.Language) PoolWor
 	return worker
 }
 
-func workersCount(image string) int {
+func freeWorkers() int {
+	freeWorkers := 0
+	for _, freeWorkersChannel := range workers {
+		freeWorkers += len(freeWorkersChannel)
+	}
+
+	return freeWorkers
+}
+
+func freeWorkersForImage(image string) int {
 	return len(workers[image])
 }
 
-func totalWorkersCount(image string) int {
+func totalWorkersCount() int {
+	totalWorkersCount := 0
+	for _, workers := range totalWorkers {
+		totalWorkersCount += workers
+	}
+
+	return totalWorkersCount
+}
+
+func totalWorkersCountForImage(image string) int {
 	return totalWorkers[image]
 }
 
 func calculateNewContainersCount(image string) int {
-	currentContainersCount := totalWorkersCount(image)
+	currentContainersCount := totalWorkersCount()
 	if currentContainersCount >= maxContainers {
 		log.Println(fmt.Sprintf("Reached maximum amount of containers %d", currentContainersCount))
-		return currentContainersCount
+		return totalWorkersCountForImage(image)
 	}
 
 	var newContainersCount int
@@ -145,7 +163,7 @@ func createWorkers(p ExecutorParams, newContainersCount int, language baseLangua
 	createWorkersLock.Lock()
 	defer createWorkersLock.Unlock()
 
-	currentContainersCount := totalWorkersCount(p.Image)
+	currentContainersCount := totalWorkersCountForImage(p.Image)
 	if currentContainersCount == newContainersCount {
 		return
 	}
